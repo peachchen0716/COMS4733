@@ -14,10 +14,9 @@ class Bug2():
 
         self.g_range_ahead = 1 
         self.scan_sub = rospy.Subscriber('scan', LaserScan, self.scan_callback)
-        self.cmd_vel = rospy.Publisher("/cmd_vel", Twist, queue_size=5)
+        self.cmd_vel = rospy.Publisher("/cmd_vel_mux/input/navi", Twist, queue_size=5)
         rate = 10
-        self.r = rospy.Rate(rate)
-        linear_speed = 0.2
+        r = rospy.Rate(rate)
 
         # Initialize the tf listener
         self.tf_listener = tf.TransformListener()
@@ -36,27 +35,30 @@ class Bug2():
                         
         x_start = position.x
         y_start = position.y
-            
-        #use conditional variable
+        
+        find_mline([x_start, y_start], [10.0, 0.0])
+        print self.mline
+
         reach_goal = False
         #reach_goal = True
         
-        twist = Twist()
-        twist.linear.x = 1
+        #twist = Twist()
+        #twist.linear.x = 2
+    
+        #for i in range(5):
+        #    self.cmd_vel.publish(twist)
+        #    r.sleep()
+        #twist = Twist()
+        #self.cmd_vel.publish(twist)
+        #rospy.sleep(1) 
 
-        for i in range(10):
-            self.cmd_vel.publish(twist)
-            self.r.sleep()
-        twist = Twist()
-        self.cmd_vel.publish(twist)
-        
         while not reach_goal:
             if not encounter_object:
                 self.cmd_vel.publish(twist)             
-                encounter_object = (g_range_ahead < 0.8)
+                encounter_object = (self.g_range_ahead < 0.8)
             else:
                 self.cmd_vel.publish(twist)
-                encounter_object = (g_range_right > 0) 
+                encounter_object = (self.g_range_right > 0) 
             twist = Twist()
             if encounter_object:
                 twist.angular.z = 1
@@ -66,10 +68,18 @@ class Bug2():
         print "done"
 
     def scan_callback(self, msg):
-        global g_range_ahead
-        global g_range_right
-        g_range_ahead = min(msg.ranges) 
-        g_range_right = msg.ranges(leng(msg.ranges) - 1)
+        self.g_range_ahead = min(msg.ranges) 
+        self.g_range_right = msg.ranges[len(msg.ranges) - 1]
+
+    def find_mline(self, start, target):
+        slope = (target[1] - start[1]) / (target[0] - start[0])
+        intercept = target[1] - target[0] * slope
+        self.m_line = (slope, intercept)
+
+    def is_on_mline(self, point):
+        if (point[0] * slope + intercept - point[1] < self.mtolerance):
+            return True
+        return False
 
     def get_odom(self):
         # Get the current transform between the odom and base frames
