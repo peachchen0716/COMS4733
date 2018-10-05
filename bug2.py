@@ -2,6 +2,7 @@
 import rospy
 import math
 import tf
+import numpy as np
 from geometry_msgs.msg import Twist, Point, Quaternion
 from sensor_msgs.msg import LaserScan
 from math import radians, copysign, sqrt, pow, pi
@@ -10,13 +11,12 @@ from rbx1_nav.transform_utils import quat_to_angle, normalize_angle
 class Bug2():
 
     def __init__(self):
-        
         rospy.init_node("bug2", anonymous=False)
 
         self.range_ahead = None
-        self.range_min = None
+        self.range_min = 2
+        self.range_max = 0
         self.range_right = None
-        self.range_max = None
         self.scan_sub = rospy.Subscriber('scan', LaserScan, self.scan_callback)
         self.cmd_vel = rospy.Publisher("/cmd_vel_mux/input/navi", Twist, queue_size=5)
         self.rate = 10
@@ -48,38 +48,49 @@ class Bug2():
         obj_dst = 0.8
 
         hit_point = set() 
+
+        self.rotate(-90)
+        (position, rotation) = self.get_odom()
+        print rotation
+        self.turn_back(rotation)
         print "start bug2"
-        while True: 
-            encounter_object = (self.range_min < obj_dst)
+        while False: 
             (position, rotation) = self.get_odom()
             reach_goal = (position.x == 10.0 and position.y == 0.0) 
-            while not reach_goal and not encounter_object:
-                self.translate(0.5)  
-                encounter_object = (self.range_min < obj_dst) 
+
+            while not reach_goal:
+                if not math.isnan(self.range_min) and (self.range_min < obj_dst):
+                    break
+                self.translate(0.5)
+                # rospy.sleep(1)  
             
             print "found an obstacle"             
             (position, rotation) = self.get_odom()
             hit_point.add(position)
-               
+            
             # turn left 
-            while encounter_object:
+            while True:
                 self.rotate(10.0)
-                print "max distance:", self.range_max
-                encounter_object = math.isnan(self.range_ahead) 
+                # rospy.sleep(1)
+                
+                if self.all_nan:
+                    break
             
             # follow boundary 
             print "start following boundary"
-            while False:
-                self.translate(0.5)
+            while True:
+                self.translate(0.3)
                 # turn until it see the object
-                while math.isnan(self.range_right):
+                while math.isnan(self.range_min):
                     print "turn right"
-                    self.rotate(-5.0)
-                    if self.range_right < obj_dst:
+                    self.rotate(-10.0)
+                    if self.range_min < obj_dst:
                         break
-                while math.isnan(self.range_right) == False:
+                while not math.isnan(self.range_min):
                     print "turn left"
-                    self.rotate(5.0)
+                    self.rotate(10.0)
+                    if self.range_min > obj_dst:
+                        break
 
                 (position, rotation) = self.get_odom()
                 if self.is_on_mline(position) == True:
@@ -114,9 +125,7 @@ class Bug2():
         self.cmd_vel.publish(Twist())
 
     def rotate(self, deg):
-
         goal_angle = deg * pi / 180.0
-        print goal_angle
         angular_speed = 0.5
         if deg < 0:
             angular_speed *= -1
@@ -140,10 +149,39 @@ class Bug2():
         # Stop the robot
         self.cmd_vel.publish(Twist())
 
+    def rotate_rad(self, rad):
+        angular_speed = 0.3
+        if rad < 0:
+            angular_speed *= -1
+        angular_duration = rad / angular_speed
+                
+        move_cmd = Twist()            
+        move_cmd.angular.z = angular_speed
+
+        # Rotate for a time to go 180 degrees
+        ticks = int(angular_duration * self.rate)
+        #ticks = abs(ticks) 
+        for t in range(ticks):           
+            self.cmd_vel.publish(move_cmd)
+            self.r.sleep()
+                
+        # Stop the robot before the next leg
+        move_cmd = Twist()
+        self.cmd_vel.publish(move_cmd)
+        rospy.sleep(1)    
+          
+        # Stop the robot
+        self.cmd_vel.publish(Twist())
+
     def scan_callback(self, msg):
+        self.all_nan = np.all(np.isnan(msg.ranges))
         self.range_ahead = msg.ranges[len(msg.ranges) / 2]
-        self.range_min = min(msg.ranges) 
-        self.range_max = max(msg.ranges) 
+        if self.all_nan:
+            self.range_max = float('nan')
+            self.range_min = float('nan')
+        else:
+            self.range_max = np.nanmax(msg.ranges)
+            self.range_min = np.nanmin(msg.ranges)
         self.range_right = msg.ranges[len(msg.ranges) - 1]
 
     def find_mline(self, start, target):
@@ -156,6 +194,9 @@ class Bug2():
         if ( abs(diff) < self.dst_tol):
             return True
         return False
+
+    def turn_back(self, rad):
+        self.rotate_rad(-1 * rad)
 
     def get_odom(self):
         # Get the current transform between the odom and base frames
