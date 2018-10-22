@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-import numpy as np # I update the numpy to 1.15.1 using sudo pip install --upgrade numpy
-import cv2
+import numpy as np 
+# import cv2
 import math
-from scipy.spatial import ConvexHull
 import matplotlib.pyplot as plt
+from scipy.spatial import ConvexHull
 
 def load_obstacles(object_path):
 	'''
@@ -72,6 +72,12 @@ class Point:
 	def __str__(self):
 		return "(%d, %d)" % (self.x, self.y)
 
+	def __eq__(self, other):
+		return self.x == other.x and self.y == other.y
+
+	def __ne__(self, other):
+		return not self.__eq__(other)
+
 # Given three colinear points p, q, r, the function checks if 
 # point q lies on line segment 'pr' 
 def on_segment(p, q, r):
@@ -99,6 +105,8 @@ def orientation(p, q, r):
 # and 'p2q2' intersect. 
 def do_intersect(p1, q1, p2, q2):
 
+	if p1 == p2 or p1 == q2 or q1 == p2 or q1 == q2:
+		return False
     # Find the four orientations needed for general and 
     # special cases 
 	o1 = orientation(p1, q1, p2) 
@@ -145,8 +153,7 @@ def create_vgraph(start, goal, grown_obstacles):
 
 	# matrix = np.zeros(shape=(num_vertices, num_vertices))
 	matrix = np.full((num_vertices, num_vertices), -1)
-	print matrix[0][0]
-	# from start to every point
+
 	for i in xrange(num_vertices):
 		for j in xrange(num_vertices):
 			if i == j:
@@ -167,13 +174,13 @@ def create_vgraph(start, goal, grown_obstacles):
 					p3 = Point(ob[k])
 					p4 = Point(ob[l])
 					if do_intersect(p1, p2, p3, p4):
-						print i," ", j, "segment collide"
+						# print i," ", j, "segment collide"
 
 						reachable = False
 						break
 			if reachable:
 				matrix[i][j] = math.hypot(p1.x - p2.x, p1.y - p2.y)
-				print "from ", p1, " to ", p2, " dst = ", matrix[i][j]
+				# print "from ", p1, " to ", p2, " dst = ", matrix[i][j]
 
 	return matrix
 
@@ -192,12 +199,9 @@ if __name__ == "__main__":
 	start = [0, 0]
 
 	# print goal
-	x = Point([1,1])
-	y = Point([10, 1])
-	z = Point([1, 2])
-	w = Point([10, 2])
-	print do_intersect(x, y, z, w)
-	# create_vgraph(start, goal, grown_obstacles)
+
+	matrix = create_vgraph(start, goal, grown_obstacles)
+	print matrix
 
 
 
