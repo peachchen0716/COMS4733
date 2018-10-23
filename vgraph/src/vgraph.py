@@ -62,7 +62,7 @@ class VGraph():
 		vertices = {}
 		colors = {}
 		vertices[0] = MyPoint(start)	
-		colors[0] = 0
+		colors[0] = -1
 		num_vertices = 1
 		for i in xrange(len(grown_obstacles)):
 			for v in grown_obstacles[i]:
@@ -70,7 +70,7 @@ class VGraph():
 				colors[num_vertices] = i
 				num_vertices += 1
 		vertices[num_vertices] = MyPoint(goal)
-		colors[num_vertices] = i
+		colors[num_vertices] = -2
 
 		num_vertices += 1
 
@@ -78,8 +78,8 @@ class VGraph():
 
 		# for each pair of vertices, find the direct distance
 		# dst is -1 if they are not connected
-		for i in xrange(num_vertices - 1):
-			for j in xrange(i + 1, num_vertices):
+		for i in xrange(num_vertices):
+			for j in xrange(num_vertices):
 				if i == j or colors[i] == colors[j]:
 					continue
 				if matrix[j][i] != -1:
@@ -93,25 +93,24 @@ class VGraph():
 					if reachable == False:
 						break
 					# loop through obstacle edges
-					for k in xrange(ob.shape[0]):
-						l = -1 if (k + 1) == ob.shape[0] else k + 1
+					for k in xrange(len(ob)):
+						l = 0 if (k + 1) == len(ob) else k + 1
+
 						p3 = MyPoint(ob[k])
 						p4 = MyPoint(ob[l])
+						if p3.x == 168 and p3.y == -18 \
+							and p4.x == 168 and p4.y == 18:
+							print "test"
 						if do_intersect(p1, p2, p3, p4):
-							# print p1, " ", p2 " intersects ", p3, " ", p4
 							reachable = False
 							break
 				if reachable:
 					matrix[i][j] = math.hypot(p1.x - p2.x, p1.y - p2.y)
 					p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
-					q = Point()
-					q.x = float(p2.x) / 100
-					q.y = float(p2.y) / 100
+					q = Point(float(p2.x) / 100, float(p2.y) / 100, 0)
 					self.markers.points.append(p)
 					self.markers.points.append(q)
 					
-					# print "from ", p1, " to ", p2, " dst = ", matrix[i][j]
-
 		return matrix, vertices
 
 	def draw_edges(self, matrix):
@@ -325,13 +324,15 @@ if __name__ == "__main__":
 	vgraph = VGraph()
 	grown_obstacles = vgraph.grow_obstacle(obstacles, bot)
 
+	for ob in grown_obstacles:
+		print ob
 	goal = load_goal("../data/goal.txt")
 	start = [0, 0]
 
 	matrix, vertices = vgraph.create_graph(start, goal, grown_obstacles)
 
 	vgraph.draw_marker()
-	# dijkstra(matrix, 0, len(matrix) - 1, vertices)
+	dijkstra(matrix, 0, len(matrix) - 1, vertices)
 
 
 
