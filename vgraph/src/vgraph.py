@@ -153,7 +153,6 @@ class VGraph():
 
 
 	def grow_obstacle(self, obstacles, bot):
-
 		grown_obstacles = []
 	
 		for i in xrange(len(obstacles)):
@@ -168,7 +167,7 @@ class VGraph():
 
 			grown_obstacles.append(points[hull.vertices, :])
 
-		print "start to grow obstacle"
+		print "start growing obstacle"
 
 		for obstacle in grown_obstacles:
 			first = Point()
@@ -179,6 +178,7 @@ class VGraph():
 				self.markers.points.append(p)
 				if i != 0:
 					self.markers.points.append(p)
+					j = 1
 				else:
 					first = p
 			self.markers.points.append(first)
@@ -187,6 +187,8 @@ class VGraph():
 
 
 	def create_graph(self, start, goal, grown_obstacles):
+		print "start creating graph"
+
 		# get number of vetices
 		# a map of index -> vertex
 		vertices = {}
@@ -209,10 +211,23 @@ class VGraph():
 
 		matrix = np.full((num_v, num_v), -1)
 
+		# add all obstacle edges into adjancency matrix
+		count = 1
+		for ob in grown_obstacles:
+			for k in xrange(len(ob)):
+				l = 0 if (k + 1) == len(ob) else k + 1 # edge case			
+				p1 = vertices[count + k]
+				p2 = vertices[count + l]
+				dst = math.hypot(p1.x - p2.x, p1.y - p2.y)
+				matrix[count + k][count + l] = dst
+				matrix[count + l][count + k] = dst
+			count += len(ob)
+
 		# for each pair of vertices, find distance
 		# dst is -1 if they are not connected
 		for i in xrange(num_v):
 			for j in xrange(num_v):
+				# if i == j or (colors[i] == colors[j] and abs(i - j) > 1):
 				if i == j or colors[i] == colors[j]:
 					continue
 				if matrix[j][i] != -1:
@@ -336,7 +351,8 @@ def do_intersect(p1, q1, p2, q2):
 		count += 1
 	if count == 1:
 		return False
-
+	if count == 2:
+		return False
     # Find the four orientations needed for general and 
     # special cases 
 	o1 = orientation(p1, q1, p2) 
@@ -369,16 +385,18 @@ def do_intersect(p1, q1, p2, q2):
 
 
 def dijkstra(matrix, vertices, start, goal):
+	print "start dijkstra search"
 	vertices_c = vertices.copy()
 	visited = [0 for i in range(len(vertices))]
 	path = [None for i in range(len(vertices))]
 	distance = [np.Infinity for i in range(len(vertices))]
 
-	distance[0] = 0
+	distance[start] = 0
 
 	while np.sum(visited) != len(vertices):
 		min = np.Infinity
 		for v in vertices_c:
+			# if visited[v] == False and distance[v] < min:
 			if distance[v] < min:
 				min = distance[v]
 				u = v
@@ -386,7 +404,7 @@ def dijkstra(matrix, vertices, start, goal):
 		visited[u] = 1
 		del vertices_c[u]
 
-		if u == len(vertices) - 1:
+		if u == goal:
 			break
 
 		for v in vertices_c:
@@ -461,7 +479,6 @@ if __name__ == "__main__":
 	path = dijkstra(matrix, vertices, 0, len(matrix) - 1)
 
 	vgraph.backtrack(path, vertices)
-	# print vgraph.markers2.points
 	vgraph.draw_marker()
 
 
