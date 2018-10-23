@@ -2,11 +2,13 @@
 
 import rospy
 import numpy as np 
-import math
 import heapq
+import math
+from math import radians, copysign, sqrt, pow, pi
+from geometry_msgs.msg import Twist, Point, Quaternion
+from rbx1_nav.transform_utils import quat_to_angle, normalize_angle
 from scipy.spatial import ConvexHull
 from visualization_msgs.msg import Marker
-from geometry_msgs.msg import Point
 
 class VGraph():
 	def __init__(self):
@@ -14,11 +16,140 @@ class VGraph():
 		rospy.on_shutdown(self.shutdown)
 
 		self.init_markers()
+		self.init_markers2()
+
+		self.init_bot()
+
+	def init_markers(self):
+		marker_scale = 0.02
+		marker_lifetime = 1
+		marker_ns = 'vgraph_ns'
+		marker_id = 0
+		marker_color = {'r': 1.0, 'g': 0.0, 'b': 0.0, 'a': 1.0}
+		self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
+			queue_size=5)
+
+		# Initialize the marker points list.
+		self.markers = Marker()
+		self.markers.ns = marker_ns
+		self.markers.id = marker_id
+		self.markers.type = 5
+		self.markers.action = Marker.ADD
+		self.markers.lifetime = rospy.Duration(marker_lifetime)
+		self.markers.scale.x = marker_scale
+		self.markers.scale.y = marker_scale
+		self.markers.color.r = marker_color['r']
+		self.markers.color.g = marker_color['g']
+		self.markers.color.b = marker_color['b']
+		self.markers.color.a = marker_color['a']
+		self.markers.header.frame_id = 'map'
+		self.markers.header.stamp = rospy.Time.now()
+		self.markers.points = list()
+
+
+	def init_markers2(self):
+		marker_scale = 0.02
+		marker_lifetime = 0
+		marker_ns = 'vgraph_ns'
+		marker_id = 0
+		marker_color = {'r': 0.0, 'g': 1.0, 'b': 0.0, 'a': 1.0}
+		self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
+			queue_size=5)
+
+		# Initialize the marker points list.
+		self.markers2 = Marker()
+		self.markers2.ns = marker_ns
+		self.markers2.id = marker_id
+		self.markers2.type = 5
+		self.markers2.action = Marker.ADD
+		self.markers2.lifetime = rospy.Duration(marker_lifetime)
+		self.markers2.scale.x = marker_scale
+		self.markers2.scale.y = marker_scale
+		self.markers2.color.r = marker_color['r']
+		self.markers2.color.g = marker_color['g']
+		self.markers2.color.b = marker_color['b']
+		self.markers2.color.a = marker_color['a']
+		self.markers2.header.frame_id = 'map'
+		self.markers2.header.stamp = rospy.Time.now()
+		self.markers2.points = list()
+
+	def init_bot(self):
+		# rospy.init_node("my_bot", anonymous=False)
+		self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
+
+		self.rate = 20
+		self.r = rospy.Rate(self.rate)
+
+		#Speeds
+		linear_speed = 0.2
+		angular_speed = 1.0
+
+	def translate(self, dist):
+		goal_distance = dist
+		linear_speed = 0.5
+		if dist < 0:
+			linear_speed *= -1
+		linear_duration = goal_distance/linear_speed
+
+
+		move_cmd = Twist()
+		move_cmd.linear.x = linear_speed
+		ticks = int(linear_duration * self.rate)
+		for t in range(ticks):
+			self.cmd_vel.publish(move_cmd)
+			self.r.sleep()
+
+		move_cmd = Twist()
+		self.cmd_vel.publish(move_cmd)
+		rospy.sleep(0.4)
+
+	def rotate(self, deg):
+		goal_angle = deg * pi / 180.0
+		angular_speed = 0.5
+		if deg < 0:
+			angular_speed *= -1
+		angular_duration = goal_angle / angular_speed
+
+		move_cmd = Twist()
+		move_cmd.angular.z = angular_speed
+
+		ticks = int(angular_duration * self.rate)
+		for t in range(ticks):
+			self.cmd_vel.publish(move_cmd)
+			self.r.sleep()
+
+		move_cmd = Twist()
+		self.cmd_vel.publish(move_cmd)
+
+		rospy.sleep(0.4)
+
+		self.cmd_vel.publish(Twist())
+
+
+	def backtrack(self, path, vertices):
+
+		pos = len(path) - 1
+		p1 = vertices[pos]
+		p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+		self.markers2.points.append(p)
+
+		while pos != 0:
+			pos = path[pos]
+			p1 = vertices[pos]
+			p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+			self.markers2.points.append(p)
+			self.markers2.points.append(p)
+
+		p1 = vertices[0]
+		p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+		self.markers2.points.append(p)
 
 	def draw_marker(self):
 		while not rospy.is_shutdown():
 			# Update the marker display
 			self.marker_pub.publish(self.markers)
+			self.marker_pub.publish(self.markers2)
+			# break
 
 
 	def grow_obstacle(self, obstacles, bot):
@@ -55,31 +186,33 @@ class VGraph():
 		return grown_obstacles
 
 
-
 	def create_graph(self, start, goal, grown_obstacles):
 		# get number of vetices
-		# and build a map of index -> vertex
+		# a map of index -> vertex
 		vertices = {}
+		# a map of index -> # of obstacle
 		colors = {}
+
 		vertices[0] = MyPoint(start)	
 		colors[0] = -1
-		num_vertices = 1
+		num_v = 1
+
 		for i in xrange(len(grown_obstacles)):
 			for v in grown_obstacles[i]:
-				vertices[num_vertices] = MyPoint(v)
-				colors[num_vertices] = i
-				num_vertices += 1
-		vertices[num_vertices] = MyPoint(goal)
-		colors[num_vertices] = -2
+				vertices[num_v] = MyPoint(v)
+				colors[num_v] = i
+				num_v += 1
 
-		num_vertices += 1
+		vertices[num_v] = MyPoint(goal)
+		colors[num_v] = -2
+		num_v += 1
 
-		matrix = np.full((num_vertices, num_vertices), -1)
+		matrix = np.full((num_v, num_v), -1)
 
-		# for each pair of vertices, find the direct distance
+		# for each pair of vertices, find distance
 		# dst is -1 if they are not connected
-		for i in xrange(num_vertices):
-			for j in xrange(num_vertices):
+		for i in xrange(num_v):
+			for j in xrange(num_v):
 				if i == j or colors[i] == colors[j]:
 					continue
 				if matrix[j][i] != -1:
@@ -94,13 +227,9 @@ class VGraph():
 						break
 					# loop through obstacle edges
 					for k in xrange(len(ob)):
-						l = 0 if (k + 1) == len(ob) else k + 1
-
+						l = 0 if (k + 1) == len(ob) else k + 1 # edge case
 						p3 = MyPoint(ob[k])
 						p4 = MyPoint(ob[l])
-						if p3.x == 168 and p3.y == -18 \
-							and p4.x == 168 and p4.y == 18:
-							print "test"
 						if do_intersect(p1, p2, p3, p4):
 							reachable = False
 							break
@@ -113,34 +242,6 @@ class VGraph():
 					
 		return matrix, vertices
 
-	def draw_edges(self, matrix):
-		return
-
-	def init_markers(self):
-		marker_scale = 0.01
-		marker_lifetime = 0
-		marker_ns = 'vgraph_ns'
-		marker_id = 0
-		marker_color = {'r': 1.0, 'g': 0.0, 'b': 0.0, 'a': 1.0}
-		self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
-			queue_size=5)
-
-		# Initialize the marker points list.
-		self.markers = Marker()
-		self.markers.ns = marker_ns
-		self.markers.id = marker_id
-		self.markers.type = 5
-		self.markers.action = Marker.ADD
-		self.markers.lifetime = rospy.Duration(marker_lifetime)
-		self.markers.scale.x = marker_scale
-		self.markers.scale.y = marker_scale
-		self.markers.color.r = marker_color['r']
-		self.markers.color.g = marker_color['g']
-		self.markers.color.b = marker_color['b']
-		self.markers.color.a = marker_color['a']
-		self.markers.header.frame_id = 'map'
-		self.markers.header.stamp = rospy.Time.now()
-		self.markers.points = list()
 
 	def shutdown(self):
 		rospy.loginfo("Stopping the robot...")
@@ -267,9 +368,37 @@ def do_intersect(p1, q1, p2, q2):
 	return False # Doesn't fall in any of the above cases 
 
 
+def dijkstra(matrix, vertices, start, goal):
+	vertices_c = vertices.copy()
+	visited = [0 for i in range(len(vertices))]
+	path = [None for i in range(len(vertices))]
+	distance = [np.Infinity for i in range(len(vertices))]
 
-def dijkstra(matrix, start, goal):
-	return
+	distance[0] = 0
+
+	while np.sum(visited) != len(vertices):
+		min = np.Infinity
+		for v in vertices_c:
+			if distance[v] < min:
+				min = distance[v]
+				u = v
+
+		visited[u] = 1
+		del vertices_c[u]
+
+		if u == len(vertices) - 1:
+			break
+
+		for v in vertices_c:
+			if matrix[u][v] == -1:
+				continue
+			
+			extended_path = distance[u] + matrix[u][v]
+			if extended_path < distance[v]:
+				distance[v] = extended_path
+				path[v] = u
+
+	return path
 
 def aster(matrix, start, goal, vertices):
 
@@ -324,15 +453,16 @@ if __name__ == "__main__":
 	vgraph = VGraph()
 	grown_obstacles = vgraph.grow_obstacle(obstacles, bot)
 
-	for ob in grown_obstacles:
-		print ob
-	goal = load_goal("../data/goal.txt")
 	start = [0, 0]
+	goal = load_goal("../data/goal.txt")
 
 	matrix, vertices = vgraph.create_graph(start, goal, grown_obstacles)
 
+	path = dijkstra(matrix, vertices, 0, len(matrix) - 1)
+
+	vgraph.backtrack(path, vertices)
+	# print vgraph.markers2.points
 	vgraph.draw_marker()
-	dijkstra(matrix, 0, len(matrix) - 1, vertices)
 
 
 
