@@ -4,6 +4,7 @@ import rospy
 import numpy as np 
 import heapq
 import math
+import tf
 from math import radians, copysign, sqrt, pow, pi
 from geometry_msgs.msg import Twist, Point, Quaternion
 from rbx1_nav.transform_utils import quat_to_angle, normalize_angle
@@ -19,7 +20,23 @@ class VGraph():
 		self.init_markers2()
 		self.init_marker_array()
 
-		# self.init_bot()
+		self.init_bot()
+
+		self.tf_listener = tf.TransformListener()
+		rospy.sleep(2)
+
+		self.odom_frame = '/odom'
+		try:
+			self.tf_listener.waitForTransform(self.odom_frame, '/base_footprint', rospy.Time(), rospy.Duration(1.0))
+			self.base_frame = '/base_footprint'
+		except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+			try:
+				self.tf_listener.waitForTransform(self.odom_frame,'/base_link', rospy.Time(), rospy.Duration(1.0))
+				self.base_frame = '/base_link'
+			except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+				rospy.loginfo("Cannot find transform between /odom and /base_link or /base_footprint")
+				rospy.signal_shutdown("tf Exception")
+
 
 	def init_marker_array(self):
 		self.marker_array_pub = rospy.Publisher('visualization_marker_array', \
@@ -29,12 +46,19 @@ class VGraph():
 		self.marker_array.markers.append(self.markers)
 		self.marker_array.markers.append(self.markers2)
 
+	def get_odom(self):
+		try:
+			(trans, rot) = self.tf_listener.lookupTransform(self.odom_frame,self.base_frame, rospy.Time(0))
+		except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+			rospy.loginfo("TF Exception")
+			return
+		return (Point(*trans), quat_to_angle(Quaternion(*rot)))
 
 	def init_markers(self):
 		marker_scale = 0.02
 		marker_lifetime = 0
 		marker_ns = 'vgraph_ns'
-		marker_id = 0
+		marker_id = 2
 		marker_color = {'r': 1.0, 'g': 0.0, 'b': 0.0, 'a': 1.0}
 		# self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
 		# 	queue_size=5)
@@ -60,7 +84,7 @@ class VGraph():
 		marker_scale = 0.02
 		marker_lifetime = 0
 		marker_ns = 'vgraph_ns'
-		marker_id = 0
+		marker_id = 1
 		marker_color = {'r': 0.0, 'g': 1.0, 'b': 0.0, 'a': 1.0}
 		# self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
 		# 	queue_size=5)
@@ -94,7 +118,7 @@ class VGraph():
 
 	def translate(self, dist):
 		goal_distance = dist
-		linear_speed = 0.5
+		linear_speed = 0.1
 		if dist < 0:
 			linear_speed *= -1
 		linear_duration = goal_distance/linear_speed
@@ -112,8 +136,9 @@ class VGraph():
 		rospy.sleep(0.4)
 
 	def rotate(self, deg):
-		goal_angle = deg * pi / 180.0
-		angular_speed = 0.5
+		#goal_angle = deg * pi / 180.0
+		goal_angle = deg
+		angular_speed = 0.1
 		if deg < 0:
 			angular_speed *= -1
 		angular_duration = goal_angle / angular_speed
@@ -129,16 +154,18 @@ class VGraph():
 		move_cmd = Twist()
 		self.cmd_vel.publish(move_cmd)
 
-		rospy.sleep(0.4)
+		rospy.sleep(1)
 
 		self.cmd_vel.publish(Twist())
 
 	def backtrack(self, path, vertices):
 
 		pos = len(path) - 1
+		shortest_path = []
 		p1 = vertices[pos]
 		p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
 		self.markers2.points.append(p)
+		shortest_path.append(p)
 
 		while pos != 0:
 			pos = path[pos]
@@ -146,18 +173,23 @@ class VGraph():
 			p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
 			self.markers2.points.append(p)
 			self.markers2.points.append(p)
+			shortest_path.append(p)
 
 		p1 = vertices[0]
 		p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
 		self.markers2.points.append(p)
+		shortest_path.append(p)
+
+		return shortest_path
 
 	def draw_marker(self):
-
 		while not rospy.is_shutdown():
 			# Update the marker display
 			# self.marker_pub.publish(self.markers)
 			# self.marker_pub.publish(self.markers2)
 			self.marker_array_pub.publish(self.marker_array)
+			rospy.sleep(2)
+			break
 
 
 	def grow_obstacle(self, obstacles, bot):
@@ -469,6 +501,37 @@ def aster(matrix, start, goal, vertices):
 		visited[cur] = True
 	return parents
 
+def angle(p1, p2):
+	if p2.x - p1.x == 0:
+		return 0
+	slope = (p2.y - p1.y)/(p2.x - p1.x)
+	angle = np.arctan(slope)
+	return angle
+
+
+def follow_path(path):
+	vgraph = VGraph()
+	currentpos, currentangle = vgraph.get_odom()
+	print currentpos, currentangle
+
+	path.reverse()
+	old_angle = 0
+	i = 0
+	while i != len(path)-1:
+		new_angle = angle(path[i], path[i+1])
+		#new_angle *= 180/pi
+
+		rot_angle = new_angle - old_angle
+		old_angle = new_angle
+
+		distance = math.hypot(path[i+1].x - path[i].x, path[i+1].y - path[i].y)
+		vgraph.rotate(rot_angle)
+		vgraph.translate(distance)
+
+		i += 1
+
+
+
 
 if __name__ == "__main__":
 
@@ -486,10 +549,8 @@ if __name__ == "__main__":
 
 	path = dijkstra(matrix, vertices, 0, len(matrix) - 1)
 
-	vgraph.backtrack(path, vertices)
+	shortest_path = vgraph.backtrack(path, vertices)
+
+	follow_path(shortest_path)
+
 	vgraph.draw_marker()
-
-
-
-
-
