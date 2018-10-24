@@ -8,7 +8,7 @@ from math import radians, copysign, sqrt, pow, pi
 from geometry_msgs.msg import Twist, Point, Quaternion
 from rbx1_nav.transform_utils import quat_to_angle, normalize_angle
 from scipy.spatial import ConvexHull
-from visualization_msgs.msg import Marker
+from visualization_msgs.msg import Marker, MarkerArray
 
 class VGraph():
 	def __init__(self):
@@ -17,17 +17,27 @@ class VGraph():
 
 		self.init_markers()
 		self.init_markers2()
+		self.init_marker_array()
 
-		self.init_bot()
+		# self.init_bot()
+
+	def init_marker_array(self):
+		self.marker_array_pub = rospy.Publisher('visualization_marker_array', \
+			MarkerArray, queue_size=5)
+		self.marker_array = MarkerArray()
+
+		self.marker_array.markers.append(self.markers)
+		self.marker_array.markers.append(self.markers2)
+
 
 	def init_markers(self):
 		marker_scale = 0.02
-		marker_lifetime = 1
+		marker_lifetime = 0
 		marker_ns = 'vgraph_ns'
 		marker_id = 0
 		marker_color = {'r': 1.0, 'g': 0.0, 'b': 0.0, 'a': 1.0}
-		self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
-			queue_size=5)
+		# self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
+		# 	queue_size=5)
 
 		# Initialize the marker points list.
 		self.markers = Marker()
@@ -46,17 +56,15 @@ class VGraph():
 		self.markers.header.stamp = rospy.Time.now()
 		self.markers.points = list()
 
-
 	def init_markers2(self):
 		marker_scale = 0.02
 		marker_lifetime = 0
 		marker_ns = 'vgraph_ns'
 		marker_id = 0
 		marker_color = {'r': 0.0, 'g': 1.0, 'b': 0.0, 'a': 1.0}
-		self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
-			queue_size=5)
+		# self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
+		# 	queue_size=5)
 
-		# Initialize the marker points list.
 		self.markers2 = Marker()
 		self.markers2.ns = marker_ns
 		self.markers2.id = marker_id
@@ -125,7 +133,6 @@ class VGraph():
 
 		self.cmd_vel.publish(Twist())
 
-
 	def backtrack(self, path, vertices):
 
 		pos = len(path) - 1
@@ -145,11 +152,12 @@ class VGraph():
 		self.markers2.points.append(p)
 
 	def draw_marker(self):
+
 		while not rospy.is_shutdown():
 			# Update the marker display
-			self.marker_pub.publish(self.markers)
-			self.marker_pub.publish(self.markers2)
-			# break
+			# self.marker_pub.publish(self.markers)
+			# self.marker_pub.publish(self.markers2)
+			self.marker_array_pub.publish(self.marker_array)
 
 
 	def grow_obstacle(self, obstacles, bot):
