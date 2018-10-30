@@ -1,10 +1,311 @@
 #!/usr/bin/env python
 
+import rospy
 import numpy as np 
-import math
 import heapq
-import matplotlib.pyplot as plt
+import math
+import tf
+from math import radians, copysign, sqrt, pow, pi
+from geometry_msgs.msg import Twist, Point, Quaternion
+from rbx1_nav.transform_utils import quat_to_angle, normalize_angle
 from scipy.spatial import ConvexHull
+from visualization_msgs.msg import Marker, MarkerArray
+
+class VGraph():
+	def __init__(self):
+		rospy.init_node('vgraph_test', anonymous=False)
+		rospy.on_shutdown(self.shutdown)
+
+		self.init_markers()
+		self.init_markers2()
+		self.init_marker_array()
+
+		self.init_bot()
+
+		self.tf_listener = tf.TransformListener()
+		rospy.sleep(2)
+
+		self.odom_frame = '/odom'
+		try:
+			self.tf_listener.waitForTransform(self.odom_frame, '/base_footprint', rospy.Time(), rospy.Duration(1.0))
+			self.base_frame = '/base_footprint'
+		except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+			try:
+				self.tf_listener.waitForTransform(self.odom_frame,'/base_link', rospy.Time(), rospy.Duration(1.0))
+				self.base_frame = '/base_link'
+			except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+				rospy.loginfo("Cannot find transform between /odom and /base_link or /base_footprint")
+				rospy.signal_shutdown("tf Exception")
+
+
+	def init_marker_array(self):
+		self.marker_array_pub = rospy.Publisher('visualization_marker_array', \
+			MarkerArray, queue_size=5)
+		self.marker_array = MarkerArray()
+
+		self.marker_array.markers.append(self.markers)
+		self.marker_array.markers.append(self.markers2)
+
+	def get_odom(self):
+		try:
+			(trans, rot) = self.tf_listener.lookupTransform(self.odom_frame,self.base_frame, rospy.Time(0))
+		except (tf.Exception, tf.ConnectivityException, tf.LookupException):
+			rospy.loginfo("TF Exception")
+			return
+		return (Point(*trans), quat_to_angle(Quaternion(*rot)))
+
+	def init_markers(self):
+		marker_scale = 0.02
+		marker_lifetime = 0
+		marker_ns = 'vgraph_ns'
+		marker_id = 2
+		marker_color = {'r': 1.0, 'g': 0.0, 'b': 0.0, 'a': 1.0}
+		# self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
+		# 	queue_size=5)
+
+		# Initialize the marker points list.
+		self.markers = Marker()
+		self.markers.ns = marker_ns
+		self.markers.id = marker_id
+		self.markers.type = 5
+		self.markers.action = Marker.ADD
+		self.markers.lifetime = rospy.Duration(marker_lifetime)
+		self.markers.scale.x = marker_scale
+		self.markers.scale.y = marker_scale
+		self.markers.color.r = marker_color['r']
+		self.markers.color.g = marker_color['g']
+		self.markers.color.b = marker_color['b']
+		self.markers.color.a = marker_color['a']
+		self.markers.header.frame_id = 'map'
+		self.markers.header.stamp = rospy.Time.now()
+		self.markers.points = list()
+
+	def init_markers2(self):
+		marker_scale = 0.02
+		marker_lifetime = 0
+		marker_ns = 'vgraph_ns'
+		marker_id = 1
+		marker_color = {'r': 0.0, 'g': 1.0, 'b': 0.0, 'a': 1.0}
+		# self.marker_pub = rospy.Publisher('vgraph_markers', Marker, \
+		# 	queue_size=5)
+
+		self.markers2 = Marker()
+		self.markers2.ns = marker_ns
+		self.markers2.id = marker_id
+		self.markers2.type = 5
+		self.markers2.action = Marker.ADD
+		self.markers2.lifetime = rospy.Duration(marker_lifetime)
+		self.markers2.scale.x = marker_scale
+		self.markers2.scale.y = marker_scale
+		self.markers2.color.r = marker_color['r']
+		self.markers2.color.g = marker_color['g']
+		self.markers2.color.b = marker_color['b']
+		self.markers2.color.a = marker_color['a']
+		self.markers2.header.frame_id = 'map'
+		self.markers2.header.stamp = rospy.Time.now()
+		self.markers2.points = list()
+
+	def init_bot(self):
+		# rospy.init_node("my_bot", anonymous=False)
+		self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=5)
+
+		self.rate = 20
+		self.r = rospy.Rate(self.rate)
+
+		#Speeds
+		linear_speed = 0.2
+		angular_speed = 1.0
+
+	def translate(self, dist):
+		goal_distance = dist
+		linear_speed = 0.1
+		if dist < 0:
+			linear_speed *= -1
+		linear_duration = goal_distance/linear_speed
+
+
+		move_cmd = Twist()
+		move_cmd.linear.x = linear_speed
+		ticks = int(linear_duration * self.rate)
+		for t in range(ticks):
+			self.cmd_vel.publish(move_cmd)
+			self.r.sleep()
+
+		move_cmd = Twist()
+		self.cmd_vel.publish(move_cmd)
+		rospy.sleep(0.4)
+
+	def rotate(self, deg):
+		#goal_angle = deg * pi / 180.0
+		goal_angle = deg
+		angular_speed = 0.1
+		if deg < 0:
+			angular_speed *= -1
+		angular_duration = goal_angle / angular_speed
+
+		move_cmd = Twist()
+		move_cmd.angular.z = angular_speed
+
+		ticks = int(angular_duration * self.rate)
+		for t in range(ticks):
+			self.cmd_vel.publish(move_cmd)
+			self.r.sleep()
+
+		move_cmd = Twist()
+		self.cmd_vel.publish(move_cmd)
+
+		rospy.sleep(1)
+
+		self.cmd_vel.publish(Twist())
+
+	def backtrack(self, path, vertices):
+
+		pos = len(path) - 1
+		shortest_path = []
+		p1 = vertices[pos]
+		p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+		self.markers2.points.append(p)
+		shortest_path.append(p)
+
+		while pos != 0:
+			pos = path[pos]
+			p1 = vertices[pos]
+			p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+			self.markers2.points.append(p)
+			self.markers2.points.append(p)
+			shortest_path.append(p)
+
+		p1 = vertices[0]
+		p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+		self.markers2.points.append(p)
+		shortest_path.append(p)
+
+		return shortest_path
+
+	def draw_marker(self):
+		while not rospy.is_shutdown():
+			# Update the marker display
+			# self.marker_pub.publish(self.markers)
+			# self.marker_pub.publish(self.markers2)
+			self.marker_array_pub.publish(self.marker_array)
+			rospy.sleep(2)
+			break
+
+
+	def grow_obstacle(self, obstacles, bot):
+		grown_obstacles = []
+	
+		for i in xrange(len(obstacles)):
+			tmp = []
+			for v in obstacles[i]:
+				for p in bot:
+					tmp.append([v[0] + p[0], v[1] + p[1]]) 
+
+			obstacles[i] += tmp
+			points = np.array(obstacles[i])
+			hull = ConvexHull(points)
+
+			grown_obstacles.append(points[hull.vertices, :])
+
+		print "start growing obstacle"
+
+		for obstacle in grown_obstacles:
+			first = Point()
+			for i in xrange(len(obstacle)):
+				p = Point()
+				p.x = float(obstacle[i][0]) / 100
+				p.y = float(obstacle[i][1]) / 100
+				self.markers.points.append(p)
+				if i != 0:
+					self.markers.points.append(p)
+					j = 1
+				else:
+					first = p
+			self.markers.points.append(first)
+
+		return grown_obstacles
+
+
+	def create_graph(self, start, goal, grown_obstacles):
+		print "start creating graph"
+
+		# get number of vetices
+		# a map of index -> vertex
+		vertices = {}
+		# a map of index -> # of obstacle
+		colors = {}
+
+		vertices[0] = MyPoint(start)	
+		colors[0] = -1
+		num_v = 1
+
+		for i in xrange(len(grown_obstacles)):
+			for v in grown_obstacles[i]:
+				vertices[num_v] = MyPoint(v)
+				colors[num_v] = i
+				num_v += 1
+
+		vertices[num_v] = MyPoint(goal)
+		colors[num_v] = -2
+		num_v += 1
+
+		matrix = np.full((num_v, num_v), -1)
+
+		# add all obstacle edges into adjancency matrix
+		count = 1
+		for ob in grown_obstacles:
+			for k in xrange(len(ob)):
+				l = 0 if (k + 1) == len(ob) else k + 1 # edge case			
+				p1 = vertices[count + k]
+				p2 = vertices[count + l]
+				dst = math.hypot(p1.x - p2.x, p1.y - p2.y)
+				matrix[count + k][count + l] = dst
+				matrix[count + l][count + k] = dst
+			count += len(ob)
+
+		# for each pair of vertices, find distance
+		# dst is -1 if they are not connected
+		for i in xrange(num_v):
+			for j in xrange(num_v):
+				# if i == j or (colors[i] == colors[j] and abs(i - j) > 1):
+				if i == j or colors[i] == colors[j]:
+					continue
+				if matrix[j][i] != -1:
+					matrix[i][j] = matrix[j][i]
+					continue
+				p1 = vertices[i]
+				p2 = vertices[j]
+
+				reachable = True
+				for ob in grown_obstacles:
+					if reachable == False:
+						break
+					# loop through obstacle edges
+					for k in xrange(len(ob)):
+						l = 0 if (k + 1) == len(ob) else k + 1 # edge case
+						p3 = MyPoint(ob[k])
+						p4 = MyPoint(ob[l])
+						if do_intersect(p1, p2, p3, p4):
+							reachable = False
+							break
+				if reachable:
+					matrix[i][j] = math.hypot(p1.x - p2.x, p1.y - p2.y)
+					p = Point(float(p1.x) / 100, float(p1.y) / 100, 0)
+					q = Point(float(p2.x) / 100, float(p2.y) / 100, 0)
+					self.markers.points.append(p)
+					self.markers.points.append(q)
+					
+		return matrix, vertices
+
+
+	def shutdown(self):
+		rospy.loginfo("Stopping the robot...")
+		# Cancel any active goals
+		# self.move_base.cancel_goal()
+		# rospy.sleep(2)
+		# Stop the robot
+		# self.cmd_vel_pub.publish(Twist())
+		rospy.sleep(1)
 
 def load_obstacles(object_path):
 	'''
@@ -40,31 +341,7 @@ def load_goal(goal_path):
 		goal = list(map(int, line.strip().split(' ')))
 	return goal
 
-def grow_obstacle(obstacles, bot):
-
-	grown_obstacles = []
-	
-	for i in xrange(len(obstacles)):
-		tmp = []
-		for v in obstacles[i]:
-			for p in bot:
-				tmp.append([v[0] + p[0], v[1] + p[1]]) 
-
-		obstacles[i] += tmp
-		points = np.array(obstacles[i])
-		hull = ConvexHull(points)
-
-		# plt.plot(points[:,0], points[:,1], 'o')
-		# for simplex in hull.simplices:
-		# 	plt.plot(points[simplex, 0], points[simplex, 1], 'k-')
-		# plt.plot(points[hull.vertices,0], points[hull.vertices,1], 'r--', lw=2)
-		# print points[hull.vertices, :]
-		grown_obstacles.append(points[hull.vertices, :])
-		# plt.show()
-
-	return grown_obstacles
-
-class Point:
+class MyPoint:
 	def __init__(self, point):
 		self.x = point[0]
 		self.y = point[1]
@@ -107,8 +384,14 @@ def orientation(p, q, r):
 # The main function that returns True if line segment 'p1q1' 
 # and 'p2q2' intersect. 
 def do_intersect(p1, q1, p2, q2):
-
-	if p1 == p2 or p1 == q2 or q1 == p2 or q1 == q2:
+	count = 0
+	if p1 == p2 or p1 == q2:
+		count += 1
+	if q1 == p2 or q1 == q2:
+		count += 1
+	if count == 1:
+		return False
+	if count == 2:
 		return False
     # Find the four orientations needed for general and 
     # special cases 
@@ -140,54 +423,42 @@ def do_intersect(p1, q1, p2, q2):
   
 	return False # Doesn't fall in any of the above cases 
 
-def create_vgraph(start, goal, grown_obstacles):
 
-	# get number of vetices
-	# and build a map of index -> vertex
-	vertices = {}
-	vertices[0] = Point(start)	
-	num_vertices = 1
-	for ob in grown_obstacles:
-		for v in ob:
-			vertices[num_vertices] = Point(v)
-			num_vertices += 1
-	vertices[num_vertices] = Point(goal)
-	num_vertices += 1
+def dijkstra(matrix, vertices, start, goal):
+	print "start dijkstra search"
+	vertices_c = vertices.copy()
+	visited = [0 for i in range(len(vertices))]
+	path = [None for i in range(len(vertices))]
+	distance = [np.Infinity for i in range(len(vertices))]
 
-	matrix = np.full((num_vertices, num_vertices), -1)
+	distance[start] = 0
 
-	# for each pair of vertices, find the direct distance
-	# dst is -1 if they are not connected
-	for i in xrange(num_vertices):
-		for j in xrange(num_vertices):
-			if i == j:
+	while np.sum(visited) != len(vertices):
+		min = np.Infinity
+		for v in vertices_c:
+			# if visited[v] == False and distance[v] < min:
+			if distance[v] < min:
+				min = distance[v]
+				u = v
+
+		visited[u] = 1
+		del vertices_c[u]
+
+		if u == goal:
+			break
+
+		for v in vertices_c:
+			if matrix[u][v] == -1:
 				continue
-			if matrix[j][i] != -1:
-				matrix[i][j] = matrix[j][i]
-				continue
-			p1 = vertices[i]
-			p2 = vertices[j]
+			
+			extended_path = distance[u] + matrix[u][v]
+			if extended_path < distance[v]:
+				distance[v] = extended_path
+				path[v] = u
 
-			reachable = True
-			for ob in grown_obstacles:
-				if reachable == False:
-					break
-				# loop through obstacle edges
-				for k in xrange(ob.shape[0]):
-					l = -1 if (k + 1) == ob.shape[0] else k + 1
-					p3 = Point(ob[k])
-					p4 = Point(ob[l])
-					if do_intersect(p1, p2, p3, p4):
-						reachable = False
-						break
-			if reachable:
-				matrix[i][j] = math.hypot(p1.x - p2.x, p1.y - p2.y)
-				# print "from ", p1, " to ", p2, " dst = ", matrix[i][j]
+	return path
 
-	return matrix, vertices
-
-
-def dijkstra(matrix, start, goal, vertices):
+def aster(matrix, start, goal, vertices):
 
 	# initial set up
 	visited = [False] * len(matrix)
@@ -230,6 +501,37 @@ def dijkstra(matrix, start, goal, vertices):
 		visited[cur] = True
 	return parents
 
+def angle(p1, p2):
+	if p2.x - p1.x == 0:
+		return 0
+	slope = (p2.y - p1.y)/(p2.x - p1.x)
+	angle = np.arctan(slope)
+	return angle
+
+
+def follow_path(path):
+	vgraph = VGraph()
+	currentpos, currentangle = vgraph.get_odom()
+	print currentpos, currentangle
+
+	path.reverse()
+	old_angle = 0
+	i = 0
+	while i != len(path)-1:
+		new_angle = angle(path[i], path[i+1])
+		#new_angle *= 180/pi
+
+		rot_angle = new_angle - old_angle
+		old_angle = new_angle
+
+		distance = math.hypot(path[i+1].x - path[i].x, path[i+1].y - path[i].y)
+		vgraph.rotate(rot_angle)
+		vgraph.translate(distance)
+
+		i += 1
+
+
+
 
 if __name__ == "__main__":
 
@@ -237,16 +539,18 @@ if __name__ == "__main__":
 
 	obstacles = load_obstacles("../data/world_obstacles.txt")
 	
-	grown_obstacles = grow_obstacle(obstacles, bot)
-	
-	goal = load_goal("../data/goal.txt")
+	vgraph = VGraph()
+	grown_obstacles = vgraph.grow_obstacle(obstacles, bot)
+
 	start = [0, 0]
+	goal = load_goal("../data/goal.txt")
 
-	matrix, vertices = create_vgraph(start, goal, grown_obstacles)
+	matrix, vertices = vgraph.create_graph(start, goal, grown_obstacles)
 
-	# dijkstra(matrix, 0, len(matrix) - 1, vertices)
+	path = dijkstra(matrix, vertices, 0, len(matrix) - 1)
 
+	shortest_path = vgraph.backtrack(path, vertices)
 
+	follow_path(shortest_path)
 
-
-
+	vgraph.draw_marker()
