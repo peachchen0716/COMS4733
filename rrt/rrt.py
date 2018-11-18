@@ -12,7 +12,7 @@ import random, math
 import rrtUtil as RU
 import time
 
-MAX_NUM_VERT = 2000
+MAX_NUM_VERT = 1500
 STEP_DISTANCE = 15
 
 class config:
@@ -112,21 +112,6 @@ def tuplefy(q):
 def printc(q):
     print(q.x, q.y)
 
-def build_obs_list(obstacle_path):
-    '''
-        returns a list of obstacles (represented by a list of configs)
-    '''
-    obs = list()
-    with open(obstacle_path) as f:
-        quantity = int(f.readline())
-        for i in range(quantity):
-            ob = list()
-            n = int(f.readline())
-            for j in range(n):
-                line = f.readline().strip().split(' ')
-                ob.append(config(int(line[0]), int(line[1])))
-            obs.append(ob)
-    return obs
 
 if __name__ == "__main__":
 
@@ -141,14 +126,13 @@ if __name__ == "__main__":
     fig, ax = plt.subplots()
     path = build_obstacle_course(args.obstacle_path, ax)
     start, goal = add_start_and_goal(args.start_goal_path, ax)
-    obs = build_obs_list(args.obstacle_path)
+    obs = RU.build_obs_list(args.obstacle_path)
 
     q_start = config(start[0], start[1]) #otherwise, start
     G = {tuplefy(q_start):[]}
     P = {}
     q_goal = config(goal[0], goal[1])
     goal_found = False
-    second_stage = False
     k = 0
 
     # bias values (5 steps around the goal point)
@@ -159,14 +143,13 @@ if __name__ == "__main__":
 
     while not goal_found and len(G) < MAX_NUM_VERT:
 
-        # if (k % 100) == 0:
-        #     print(k, 'points randomly generated')
         if (k % 200) == 0 and k > 0:
             print("%d vertex generated" % (len(G)))
 
         while True:
-            if random.random() > 0.9:
-                q_rand = config(random.randint(minX, maxX), random.randint(minY, maxY))
+            if random.random() > 0.95:
+                # q_rand = config(random.randint(minX, maxX), random.randint(minY, maxY))
+                q_rand = q_goal
             else:
                 q_rand = rand(600, 600)
             if not RU.is_inside(obs, q_rand):
@@ -175,13 +158,8 @@ if __name__ == "__main__":
         k += 1
         q_near = near(q_rand, G)
         q_new = new(q_near, q_rand, STEP_DISTANCE)
-        if RU.is_inside(obs, q_new):
+        if RU.is_invalid(obs, q_new, q_near):
             continue
-
-        # printc(q_rand)
-        # printc(q_near)
-        # printc(q_new)
-        # print("\n")
 
         G[tuplefy(q_new)] = []
         G[tuplefy(q_near)].append(tuplefy(q_new))
@@ -200,7 +178,6 @@ if __name__ == "__main__":
                 parent = P[q_new]
             plt.draw()
             goal_found = True
-
         plt.draw()
 
     plt.show()

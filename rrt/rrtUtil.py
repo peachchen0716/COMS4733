@@ -18,10 +18,10 @@ def orientation(p, q, r):
         return 2
 
 def do_intersect(p1, q1, p2, q2):
-    o1 = orientation(p1, q1, p2); 
-    o2 = orientation(p1, q1, q2); 
-    o3 = orientation(p2, q2, p1); 
-    o4 = orientation(p2, q2, q1);
+    o1 = orientation(p1, q1, p2)
+    o2 = orientation(p1, q1, q2) 
+    o3 = orientation(p2, q2, p1) 
+    o4 = orientation(p2, q2, q1)
 
     if o1 != o2 and o3 != o4: 
         return True; 
@@ -31,6 +31,18 @@ def do_intersect(p1, q1, p2, q2):
         return True; 
     if o4 == 0 and on_segment(p2, q1, q2): 
         return True; 
+    return False
+
+def is_path_inside(obs, p1, p2):
+
+    for ob in obs:
+        for k in range(len(ob)):
+            l = 0 if (k + 1) == len(ob) else k + 1 # edge case
+            p3 = ob[k]
+            p4 = ob[l]
+            if do_intersect(p1, p2, p3, p4):
+                return True
+    
     return False
 
 def is_inside_ob(ob, n, p):
@@ -58,18 +70,22 @@ def is_inside(obs, p):
             return True
     return False
 
-if __name__ == "__main__":
-    print("start test")
-    for p in obs[0]:
-        print(p.x + ", " + p.y)
-    '''
-    polygon1 = [config(0, 0), config(10, 0), config(10, 10), config(0, 10)] 
-    n = len(polygon1)
-    p = config(20, 20) 
-    print(is_inside(polygon1, n, p))
-    p = config(5, 5)  
-    print(is_inside(polygon1, n, p))
-    p = config(0, 5)  
-    print(is_inside(polygon1, n, p))
-    '''
+def is_invalid(obs, p, q):
+    return is_inside(obs, p) or is_path_inside(obs, p, q)
 
+
+def build_obs_list(obstacle_path):
+    '''
+        returns a list of obstacles (represented by a list of configs)
+    '''
+    obs = list()
+    with open(obstacle_path) as f:
+        quantity = int(f.readline())
+        for i in range(quantity):
+            ob = list()
+            n = int(f.readline())
+            for j in range(n):
+                line = f.readline().strip().split(' ')
+                ob.append(config(int(line[0]), int(line[1])))
+            obs.append(ob)
+    return obs
