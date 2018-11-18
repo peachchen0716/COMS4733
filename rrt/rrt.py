@@ -12,8 +12,8 @@ import random, math
 import rrtUtil as RU
 import time
 
-MAX_NUM_VERT = 1500
-STEP_DISTANCE = 15
+MAX_NUM_VERT = 2000
+#STEP_DISTANCE = 
 
 class config:
     def __init__(self, x, y):
@@ -96,15 +96,21 @@ def near(q_rand, G):
 
     return q
 
-def new(q_near, q_rand, dq):
+def new(q_near, q_rand, q_goal, dq):
     def angle(q1, q2):
         return math.atan2(q_rand.y-q_near.y, q_rand.x-q_near.x)
+
+    def dist(q1, q2):
+        return math.sqrt((q2.y - q1.y)**2 + (q2.x - q1.x)**2)
 
     theta = angle(q_near, q_rand)
     new_x = dq * np.cos(theta) + q_near.x
     new_y = dq * np.sin(theta) + q_near.y
 
-    return config(new_x, new_y)
+    q = config(new_x, new_y)
+    if dist(q, q_goal) < dq:
+        return q_goal
+    return q
 
 def tuplefy(q):
     return (q.x, q.y)
@@ -121,7 +127,13 @@ if __name__ == "__main__":
                         help="File path for obstacle set")
     parser.add_argument('start_goal_path',
                         help="File path for obstacle set")
+    parser.add_argument('step_distance',
+                        help="Tree growth distance")
+    
     args = parser.parse_args()
+
+
+    STEP_DISTANCE = int(args.step_distance)
 
     fig, ax = plt.subplots()
     path = build_obstacle_course(args.obstacle_path, ax)
@@ -130,7 +142,7 @@ if __name__ == "__main__":
 
     q_start = config(start[0], start[1]) #otherwise, start
     G = {tuplefy(q_start):[]}
-    P = {}
+    P = {q_start:None}
     q_goal = config(goal[0], goal[1])
     goal_found = False
     k = 0
@@ -147,7 +159,7 @@ if __name__ == "__main__":
             print("%d vertex generated" % (len(G)))
 
         while True:
-            if random.random() > 0.95:
+            if random.random() > 0.90:
                 # q_rand = config(random.randint(minX, maxX), random.randint(minY, maxY))
                 q_rand = q_goal
             else:
@@ -157,7 +169,7 @@ if __name__ == "__main__":
 
         k += 1
         q_near = near(q_rand, G)
-        q_new = new(q_near, q_rand, STEP_DISTANCE)
+        q_new = new(q_near, q_rand, q_goal, STEP_DISTANCE)
         if RU.is_invalid(obs, q_new, q_near):
             continue
 
@@ -168,11 +180,11 @@ if __name__ == "__main__":
         ax.plot(q_new.x, q_new.y, 'bo', markersize=1)
         ax.plot([ q_near.x, q_new.x ], [ q_near.y, q_new.y ], color='blue', linestyle='-', linewidth=0.5)
 
-        if abs(q_goal.x - q_new.x) < 5 and abs(q_goal.y - q_new.y) < 5:
+        if q_goal.x == q_new.x and q_goal.y == q_new.y:
             print("FOUND GOAL")
             # draw shortest path
             parent = P[q_new]
-            while parent != q_start:
+            while q_new != q_start:
                 ax.plot([ parent.x, q_new.x ], [ parent.y, q_new.y ], color='yellow', linestyle='-', linewidth=2)
                 q_new = parent
                 parent = P[q_new]
