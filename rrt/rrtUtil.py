@@ -33,7 +33,7 @@ def do_intersect(p1, q1, p2, q2):
         return True; 
     return False
 
-def is_inside(ob, n, p):
+def is_inside_ob(ob, n, p):
     if n < 3:
         return False
     
@@ -52,26 +52,14 @@ def is_inside(ob, n, p):
             break
     return count % 2 == 1
 
-
-def build_obs_list(obstacle_path):
-    '''
-        returns a list of obstacles (represented by a list of configs)
-    '''
-    obs = list()
-    with open(obstacle_path) as f:
-        quantity = int(f.readline())
-        for i in xrange(quantity):
-            ob = list()
-            n = int(f.readline())
-            for j in xrange(n):
-                line = f.readline().strip().split(' ')
-                ob.append(config(line[0], line[1]))
-            obs.append(ob)
-    return obs
+def is_inside(obs, p):
+    for ob in obs:
+        if is_inside_ob(ob, len(ob), p):
+            return True
+    return False
 
 if __name__ == "__main__":
     print("start test")
-    obs = build_obs_list("world_obstacles.txt")
     for p in obs[0]:
         print(p.x + ", " + p.y)
     '''
